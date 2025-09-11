@@ -49,6 +49,7 @@ pub fn get_price(
 
 
 
+#[allow(dead_code)]
 fn get_most_recent_price_and_twap(
     token_info: &TokenInfo,
     pyth_price_account_info: Option<&AccountInfo>,
