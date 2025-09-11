@@ -57,3 +57,7 @@ bitflags = "2.4.1"
 serde = { workspace = true, optional = true }
 tracing = { version = "0.1.40", optional = true }
 
+[dev-dependencies]
+proptest = "1.5"
+rand = "0.8"
+
