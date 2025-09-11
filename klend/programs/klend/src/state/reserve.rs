@@ -1478,6 +1478,85 @@ pub fn approximate_compounded_interest(rate: Fraction, elapsed_slots: u64) -> Fr
     Fraction::ONE + first_term + second_term + third_term
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn big_pow(mut base: BigFraction, mut exp: u64) -> BigFraction {
+        let mut acc = BigFraction::from(Fraction::ONE);
+        while exp > 0 {
+            if exp & 1 == 1 {
+                acc *= base;
+            }
+            exp >>= 1;
+            if exp == 0 {
+                break;
+            }
+            base *= base;
+        }
+        acc
+    }
+
+    fn exact_compounded_interest(rate: Fraction, elapsed_slots: u64) -> Fraction {
+        if elapsed_slots == 0 {
+            return Fraction::ONE;
+        }
+        let base = Fraction::ONE + rate / u128::from(SLOTS_PER_YEAR);
+        let base_bf = BigFraction::from(base);
+        let res_bf = big_pow(base_bf, elapsed_slots);
+        Fraction::try_from(res_bf).expect("exact_compounded_interest overflow")
+    }
+
+    #[test]
+    fn approx_never_exceeds_exact_for_positive_rates_small_grid() {
+        let apr_bps_cases: &[u64] = &[0, 100, 500, 1_500, 5_000, 20_000, 100_000, 200_000];
+        let slots_cases: &[u64] = &[0, 1, 2, 3, 4, 5, 10, 100, 1_000, 10_000, 100_000, 1_000_000];
+        for &apr_bps in apr_bps_cases {
+            let rate = Fraction::from_bps(apr_bps);
+            for &slots in slots_cases {
+                let approx = approximate_compounded_interest(rate, slots);
+                let exact = exact_compounded_interest(rate, slots);
+                assert!(approx <= exact, "approx > exact: apr_bps={apr_bps} slots={slots} approx={} exact={}", approx.to_display(), exact.to_display());
+                assert!(approx >= Fraction::ONE || slots == 0, "approx < 1 with positive rate");
+            }
+        }
+    }
+
+    #[test]
+    fn print_relative_error_heatmap_sample() {
+        let apr_bps_cases: &[u64] = &[500, 2_000, 10_000, 50_000, 100_000, 200_000];
+        let slots_cases: &[u64] = &[10, 100, 1_000, 10_000, 100_000, 1_000_000];
+        let mut worst_rel_err = Fraction::ZERO;
+        let mut worst_case = (0u64, 0u64);
+        for &apr_bps in apr_bps_cases {
+            let rate = Fraction::from_bps(apr_bps);
+            for &slots in slots_cases {
+                let approx = approximate_compounded_interest(rate, slots);
+                let exact = exact_compounded_interest(rate, slots);
+                if exact > Fraction::ZERO {
+                    let rel_err = (exact - approx) / exact;
+                    if rel_err > worst_rel_err {
+                        worst_rel_err = rel_err;
+                        worst_case = (apr_bps, slots);
+                    }
+                    println!(
+                        "apr_bps={apr_bps:>6} slots={slots:>8} approx={} exact={} rel_err_bps={}",
+                        approx.to_display(),
+                        exact.to_display(),
+                        (rel_err * 10_000u128).to_round::<u64>()
+                    );
+                }
+            }
+        }
+        println!(
+            "worst_case apr_bps={} slots={} worst_rel_err_bps={}",
+            worst_case.0,
+            worst_case.1,
+            (worst_rel_err * 10_000u128).to_round::<u64>()
+        );
+    }
+}
+
 
 
 
