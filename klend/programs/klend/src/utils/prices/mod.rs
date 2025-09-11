@@ -84,16 +84,55 @@ fn get_most_recent_price_and_twap(
         None
     };
 
-    let most_recent_price = [pyth_price, switchboard_price, scope_price]
+    // Prefer recent but also consistent: select the most recent within a deviation band from median
+    let mut candidates: Vec<_> = [pyth_price, switchboard_price, scope_price]
         .into_iter()
         .flatten()
-        .reduce(|current, candidate| {
-            if candidate.price.timestamp > current.price.timestamp {
-                candidate
-            } else {
-                current
-            }
-        });
+        .collect();
+
+    // If no candidates, error
+    if candidates.is_empty() {
+        return Err(error!(LendingError::PriceNotValid));
+    }
+
+    // Compute median timestamp and use it to compute a deviation band for values
+    candidates.sort_by_key(|c| c.price.timestamp);
+    let median_idx = candidates.len() / 2;
+    let _median_candidate = candidates[median_idx].clone();
+
+    // Compute pairwise median price by loading values that are available; fallback to timestamp-only if load fails
+    let mut loaded_prices = Vec::with_capacity(candidates.len());
+    for c in &candidates {
+        if let Ok(px) = (c.price.price_load)() {
+            loaded_prices.push(px);
+        }
+    }
+    // If at least two prices loaded, compute mid value; else keep original selection strategy
+    let most_recent_price = if loaded_prices.len() >= 2 {
+        loaded_prices.sort();
+        let median_price = loaded_prices[loaded_prices.len() / 2];
+        // Accept candidates within a configurable band (use heuristic max_twap_divergence_bps as band)
+        let acceptable_bps = token_info.max_twap_divergence_bps.max(50); // minimum 50 bps band
+        let is_within_band = |px: Fraction| -> bool {
+            let diff = Fraction::abs_diff(px, median_price) * 10_000u128;
+            diff < median_price * u128::from(acceptable_bps)
+        };
+
+        candidates
+            .into_iter()
+            .filter(|c| (c.price.price_load)().map(is_within_band).unwrap_or(false))
+            .max_by_key(|c| c.price.timestamp)
+    } else {
+        candidates
+            .into_iter()
+            .reduce(|current, candidate| {
+                if candidate.price.timestamp > current.price.timestamp {
+                    candidate
+                } else {
+                    current
+                }
+            })
+    };
 
     most_recent_price.ok_or_else(|| {
         msg!("No price feed available");

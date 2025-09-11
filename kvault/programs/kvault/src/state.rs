@@ -43,6 +43,8 @@ pub struct VaultState {
     pub prev_aum_sf: u128,
     // todo: should we split this into pending_mgmt_fee and pending_perf_fee?
     pub pending_fees_sf: u128,
+    // Tracks rounding residuals (non-yield) to exclude from performance fees
+    pub rounding_residual_sf: u128,
 
     pub vault_allocation_strategy: [VaultAllocation; MAX_RESERVES],
     pub padding_1: [u128; 256],
@@ -147,6 +149,14 @@ impl VaultState {
         }
 
         Ok(Fraction::from(self.token_available) + invested_total - pending_fees)
+    }
+
+    pub fn get_rounding_residual(&self) -> Fraction {
+        Fraction::from_bits(self.rounding_residual_sf)
+    }
+
+    pub fn set_rounding_residual(&mut self, residual: Fraction) {
+        self.rounding_residual_sf = residual.to_bits();
     }
 
     pub fn validate(&self) -> Result<()> {
