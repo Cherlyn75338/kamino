@@ -1495,6 +1495,7 @@ mod tests {
     use super::approximate_compounded_interest;
     use crate::utils::{Fraction, FractionExtra, SLOTS_PER_YEAR};
     use rand::{rngs::StdRng, Rng, SeedableRng};
+    use super::CollateralExchangeRate;
 
     fn exact_compound(rate: Fraction, slots: u64) -> Fraction {
         let base = Fraction::ONE + rate / u128::from(SLOTS_PER_YEAR);
@@ -1586,6 +1587,53 @@ mod tests {
                 debt_f >= Fraction::ZERO && debt_f < Fraction::from(10_000_000u64),
                 "debt_f out of bounds: {}",
                 debt_f.to_display()
+            );
+        }
+    }
+
+    #[test]
+    fn collateral_exchange_rate_deposit_enforcement_never_over_mints() {
+        let mut rng = StdRng::seed_from_u64(42);
+        for _ in 0..10_000 {
+            let supply: u64 = rng.gen_range(1..=5_000_000_000);
+            let total_liquidity: u64 = rng.gen_range(1..=5_000_000_000);
+            let cer = CollateralExchangeRate::from_supply_and_liquidity(
+                supply,
+                Fraction::from(total_liquidity),
+            );
+
+            let deposit_liq: u64 = rng.gen_range(0..=1_000_000);
+            let collateral = cer.liquidity_to_collateral(deposit_liq);
+            let liq_to_deposit = cer.collateral_to_liquidity_ceil(collateral);
+
+            assert!(
+                liq_to_deposit <= deposit_liq,
+                "ceil enforcement must not over-mint: liq_to_deposit={} > deposit_liq={}",
+                liq_to_deposit,
+                deposit_liq
+            );
+        }
+    }
+
+    #[test]
+    fn collateral_exchange_rate_deposit_then_redeem_no_inflation() {
+        let mut rng = StdRng::seed_from_u64(1337);
+        for _ in 0..10_000 {
+            let supply: u64 = rng.gen_range(1..=1_000_000_000);
+            let total_liquidity: u64 = rng.gen_range(1..=1_000_000_000);
+            let cer = CollateralExchangeRate::from_supply_and_liquidity(
+                supply,
+                Fraction::from(total_liquidity),
+            );
+
+            let deposit_liq: u64 = rng.gen_range(0..=100_000);
+            let collateral = cer.liquidity_to_collateral(deposit_liq);
+            let redeemed_liq = cer.collateral_to_liquidity(collateral);
+            assert!(
+                redeemed_liq <= deposit_liq,
+                "redeem cannot exceed deposit: redeemed={} deposit={}",
+                redeemed_liq,
+                deposit_liq
             );
         }
     }

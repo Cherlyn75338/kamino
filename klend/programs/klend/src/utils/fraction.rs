@@ -421,4 +421,39 @@ impl std::fmt::Debug for FractionDisplay<'_> {
     }
 }
 
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn bigfraction_mul_div_does_not_panic_on_moderate_values() {
+		// Use moderate magnitudes to avoid U256 overflow in internal shifts
+		let a = BigFraction::from_num(1_000_000u128);
+		let b = BigFraction::from_num(3u128);
+		let c = a / b; // should not panic
+		let _ = c * BigFraction::from_num(7u128);
+	}
+
+	#[test]
+	fn fraction_try_from_bigfraction_overflow_returns_error() {
+		let too_big = BigFraction::from_bits([u64::MAX, u64::MAX, 1, 0]);
+		let res = Fraction::try_from(too_big);
+		assert!(matches!(res, Err(LendingError::IntegerOverflow)));
+	}
+
+	#[test]
+	fn div_ceil_matches_internal_impl() {
+		let a = Fraction::from_num(7u64);
+		let b = Fraction::from_num(3u64);
+		let res = a.div_ceil(&b);
+		let num_sf = a.to_bits();
+		let denum_sf = b.to_bits();
+		let res_sf_u256 = ((U256::from(num_sf) << Fraction::FRAC_NBITS)
+			+ U256::from(denum_sf - 1))
+			/ denum_sf;
+		let manual: u128 = res_sf_u256.try_into().unwrap();
+		assert_eq!(res.to_bits(), manual);
+	}
+}
+
 

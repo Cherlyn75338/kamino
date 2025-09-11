@@ -171,3 +171,75 @@ fn check_price_heuristics(token_price: Fraction, heuristic: &PriceHeuristic) -> 
 }
 
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::fraction::fraction;
+    use crate::utils::prices::{TimestampedPrice, TimestampedPriceWithTwap};
+
+    fn tok() -> TokenInfo {
+        TokenInfo {
+            name: [0; 32],
+            heuristic: PriceHeuristic { lower: 0, upper: 0, exp: 0 },
+            max_twap_divergence_bps: 100, // 1%
+            max_age_price_seconds: 60,
+            max_age_twap_seconds: 300,
+            scope_configuration: Default::default(),
+            switchboard_configuration: Default::default(),
+            pyth_configuration: Default::default(),
+            block_price_usage: 0,
+            reserved: [0; 7],
+            _padding: [0; 19],
+        }
+    }
+
+    #[test]
+    fn twap_disabled_marks_checks_as_passed() {
+        let mut t = tok();
+        t.max_twap_divergence_bps = 0; // disable TWAP
+        let price = TimestampedPriceWithTwap {
+            price: TimestampedPrice {
+                price_load: Box::new(|| Ok(fraction!(1.0))),
+                timestamp: 1000,
+            },
+            twap: None,
+        };
+        let res = get_validated_price(price, &t, 1010).unwrap();
+        assert!(res.status.contains(PriceStatusFlags::TWAP_CHECKED));
+        assert!(res.status.contains(PriceStatusFlags::TWAP_AGE_CHECKED));
+    }
+
+    #[test]
+    fn stale_price_does_not_set_age_checked() {
+        let t = tok();
+        let price = TimestampedPriceWithTwap {
+            price: TimestampedPrice {
+                price_load: Box::new(|| Ok(fraction!(1.0))),
+                timestamp: 0,
+            },
+            twap: None,
+        };
+        // stale by more than max_age_price_seconds (60)
+        let res = get_validated_price(price, &t, 10_000).unwrap();
+        assert!(!res.status.contains(PriceStatusFlags::PRICE_AGE_CHECKED));
+    }
+
+    #[test]
+    fn price_far_from_twap_fails_tolerance() {
+        let mut t = tok();
+        t.max_twap_divergence_bps = 50; // 0.5%
+        let price = TimestampedPriceWithTwap {
+            price: TimestampedPrice {
+                price_load: Box::new(|| Ok(fraction!(1.0))),
+                timestamp: 1000,
+            },
+            twap: Some(TimestampedPrice {
+                price_load: Box::new(|| Ok(fraction!(1.02))), // +2%
+                timestamp: 1000,
+            }),
+        };
+        let res = get_validated_price(price, &t, 1010).unwrap();
+        assert!(!res.status.contains(PriceStatusFlags::TWAP_CHECKED));
+    }
+}
+

@@ -825,3 +825,42 @@ pub fn calculate_protocol_liquidation_fee(
 
     max(protocol_fee, 1)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anchor_lang::prelude::Pubkey;
+    use crate::utils::fraction::fraction;
+
+    #[test]
+    fn liquidation_withdraw_never_exceeds_collateral_amount() {
+        // Construct minimal ObligationCollateral with a deposited amount
+        let collateral = ObligationCollateral {
+            deposit_reserve: Pubkey::default(),
+            deposited_amount: 1_000_000,
+            market_value_sf: fraction!(1000.0).to_bits(),
+            borrowed_amount_against_this_collateral_in_elevation_group: 0,
+            padding: [0; 9],
+        };
+
+        // total liquidation value is greater than collateral value -> withdraw full amount
+        let (settle, _repay, withdraw) = calculate_liquidation_amounts(
+            fraction!(2000.0), // with bonus, exceeds collateral value
+            &collateral,
+            fraction!(10.0),
+            false,
+        );
+        assert!(settle > Fraction::ZERO);
+        assert_eq!(withdraw, collateral.deposited_amount);
+
+        // total liquidation value is less than collateral -> proportional withdraw <= deposited
+        let (settle2, _repay2, withdraw2) = calculate_liquidation_amounts(
+            fraction!(500.0),
+            &collateral,
+            fraction!(10.0),
+            false,
+        );
+        assert!(settle2 > Fraction::ZERO);
+        assert!(withdraw2 <= collateral.deposited_amount);
+    }
+}
