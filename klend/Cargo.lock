@@ -1399,6 +1399,7 @@ dependencies = [
  "fixed-macro",
  "num_enum 0.7.1",
  "pyth-solana-receiver-sdk",
+ "rand 0.8.5",
  "sbod-itf",
  "scope-types 1.0.0 (git+https://github.com/Kamino-Finance/scope.git)",
  "serde",

@@ -1,0 +1,10 @@
+/workspace/kvault/target/debug/deps/libspl_token_metadata_interface-3fee9585fe4448bb.so: /usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/lib.rs /usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/error.rs /usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/instruction.rs /usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/state.rs
+
+/workspace/kvault/target/debug/deps/libspl_token_metadata_interface-3fee9585fe4448bb.rlib: /usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/lib.rs /usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/error.rs /usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/instruction.rs /usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/state.rs
+
+/workspace/kvault/target/debug/deps/spl_token_metadata_interface-3fee9585fe4448bb.d: /usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/lib.rs /usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/error.rs /usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/instruction.rs /usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/state.rs
+
+/usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/lib.rs:
+/usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/error.rs:
+/usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/instruction.rs:
+/usr/local/cargo/git/checkouts/solana-program-library-068930272986f189/0549933/token-metadata/interface/src/state.rs:

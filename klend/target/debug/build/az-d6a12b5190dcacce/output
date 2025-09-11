@@ -1,0 +1,6 @@
+$ mkdir -p "/workspace/klend/target/debug/build/az-d6a12b5190dcacce/out/try_track_caller"
+$ cd "/workspace/klend/target/debug/build/az-d6a12b5190dcacce/out/try_track_caller"
+$ printf '%s' "// try_tra"... > "/workspace/klend/target/debug/build/az-d6a12b5190dcacce/out/try_track_caller/try_track_caller.rs"
+$ cd "/workspace/klend/target/debug/build/az-d6a12b5190dcacce/out/try_track_caller" && "/usr/local/rustup/toolchains/1.74.1-x86_64-unknown-linux-gnu/bin/rustc" "try_track_caller.rs" "--emit=dep-info,metadata" >& /dev/null
+cargo:rustc-cfg=track_caller
+$ rm -r "/workspace/klend/target/debug/build/az-d6a12b5190dcacce/out/try_track_caller"

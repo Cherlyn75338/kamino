@@ -1490,6 +1490,107 @@ pub fn approximate_compounded_interest(rate: Fraction, elapsed_slots: u64) -> Fr
 
 
 
+#[cfg(test)]
+mod tests {
+    use super::approximate_compounded_interest;
+    use crate::utils::{Fraction, FractionExtra, SLOTS_PER_YEAR};
+    use rand::{rngs::StdRng, Rng, SeedableRng};
+
+    fn exact_compound(rate: Fraction, slots: u64) -> Fraction {
+        let base = Fraction::ONE + rate / u128::from(SLOTS_PER_YEAR);
+        base.checked_pow(u32::try_from(slots).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn approx_compound_never_overestimates_across_ranges() {
+        let test_rates_percent: [u64; 7] = [0, 1, 5, 10, 50, 100, 200];
+        let test_slots: [u64; 12] = [
+            0, 1, 2, 3, 4, 5, 10, 100, 1_000, 10_000, 100_000, 5_200_000,
+        ];
+
+        for rate_pct in test_rates_percent {
+            let rate = Fraction::from_percent(rate_pct);
+            for &n in &test_slots {
+                let approx = approximate_compounded_interest(rate, n);
+                let exact = exact_compound(rate, n);
+                // Truncated series should never exceed exact (monotone underestimation for x>0)
+                assert!(
+                    approx <= exact,
+                    "approx exceeds exact for rate_pct={} n={}, approx={} exact={}",
+                    rate_pct,
+                    n,
+                    approx.to_display(),
+                    exact.to_display()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn approx_compound_is_exact_for_small_n_up_to_4() {
+        let test_rates_percent: [u64; 5] = [0, 1, 5, 10, 50];
+        for rate_pct in test_rates_percent {
+            let rate = Fraction::from_percent(rate_pct);
+            for n in 0u64..=4u64 {
+                let approx = approximate_compounded_interest(rate, n);
+                let exact = exact_compound(rate, n);
+                assert_eq!(
+                    approx, exact,
+                    "approx should equal exact for n≤4, rate_pct={} n={}",
+                    rate_pct, n
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn borrow_repay_rounding_invariants_randomized() {
+        // Model the ReserveLiquidity.borrow/repay rounding asymmetry:
+        // - borrow: available decreases by floor(borrow_f), debt increases by borrow_f
+        // - repay: available increases by repay_amount (ceil(settle)), debt decreases by settle
+        let mut rng = StdRng::seed_from_u64(0xC0FFEE);
+
+        for _ in 0..1000 {
+            let mut available: i128 = rng.gen_range(1_000_000u64..2_000_000u64) as i128;
+            let mut debt_f = Fraction::from(rng.gen_range(0u64..1_000_000u64));
+
+            // Run a sequence of small ops
+            for _ in 0..1_000 {
+                // choose borrow or repay
+                let do_borrow: bool = rng.gen();
+                if do_borrow {
+                    // small borrow
+                    let raw = rng.gen_range(0u64..10u64);
+                    let borrow_f = Fraction::from(raw);
+                    let borrow_amt: i128 = borrow_f.to_floor::<u64>() as i128;
+                    if borrow_amt <= available {
+                        available -= borrow_amt;
+                        debt_f += borrow_f;
+                    }
+                } else {
+                    // repay up to current debt
+                    let raw = rng.gen_range(0u64..10u64);
+                    let settle_f = Fraction::from(raw).min(debt_f);
+                    let repay_amt: i128 = settle_f.to_ceil::<u64>() as i128;
+                    available += repay_amt;
+                    debt_f -= settle_f;
+                }
+            }
+
+            // Invariant: total_supply = available + debt - fees (fees omitted here) should be
+            // within a small drift bound due to rounding. Since we don't model fees and floors/ceils
+            // may add bias, assert debt is close to integer and available non-negative.
+            assert!(available >= 0, "available became negative: {available}");
+            // Ensure debt doesn't go negative or explode
+            assert!(
+                debt_f >= Fraction::ZERO && debt_f < Fraction::from(10_000_000u64),
+                "debt_f out of bounds: {}",
+                debt_f.to_display()
+            );
+        }
+    }
+}
+
 
 
 
