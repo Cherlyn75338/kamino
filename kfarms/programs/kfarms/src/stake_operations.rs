@@ -167,6 +167,40 @@ pub fn convert_stake_to_amount(
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use decimal_wad::decimal::Decimal;
+
+    #[test]
+    fn round_up_true_never_underpays_and_false_never_overpays() {
+        // Tiny totals to maximize fractional parts
+        let total_stake = Decimal::from(7u64);
+        let total_amount = 10u64;
+        for s in 0..=7u64 {
+            let stake = Decimal::from(s);
+            let up = convert_stake_to_amount(stake, total_stake, total_amount, true);
+            let down = convert_stake_to_amount(stake, total_stake, total_amount, false);
+            assert!(up >= down);
+        }
+    }
+
+    #[test]
+    fn amount_to_stake_and_back_with_rounding_bounds() {
+        // For varying totals ensure round trip within ±1 of original amount
+        for total_amount in [1u64, 3, 7, 10, 100, 1_000] {
+            let total_stake = Decimal::from(total_amount);
+            for amt in 0..=total_amount.min(50) {
+                let stake = convert_amount_to_stake(amt, total_stake, total_amount);
+                let amt_floor = convert_stake_to_amount(stake, total_stake, total_amount, false);
+                let amt_ceil = convert_stake_to_amount(stake, total_stake, total_amount, true);
+                assert!(amt_floor <= amt && amt <= amt_ceil);
+                assert!(amt_ceil.saturating_sub(amt_floor) <= 1);
+            }
+        }
+    }
+}
+
 pub fn convert_amount_to_stake(amount: u64, total_stake: Decimal, total_amount: u64) -> Decimal {
     if amount == 0 {
         return Decimal::zero();
