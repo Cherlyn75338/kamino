@@ -94,6 +94,52 @@ fn assert_prices_within_max_divergence(
         .map_err(|_| ScopeError::MostRecentOfMaxDivergenceBpsViolated)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::states::Price as ScopePrice;
+
+    #[test]
+    fn stale_source_does_trigger_dos() {
+        let now = 1_000_000u64;
+        let clock = Clock {
+            slot: 0,
+            epoch_start_timestamp: 0,
+            epoch: 0,
+            leader_schedule_epoch: 0,
+            unix_timestamp: now as i64,
+        };
+
+        let mut prices = [DatedPrice::default(); crate::MAX_ENTRIES];
+        prices[0] = DatedPrice {
+            price: ScopePrice { value: 100, exp: 2 },
+            unix_timestamp: now - 100,
+            last_updated_slot: 0,
+            ..Default::default()
+        };
+        prices[1] = DatedPrice {
+            price: ScopePrice { value: 101, exp: 2 },
+            unix_timestamp: now - 10_000, // stale
+            last_updated_slot: 0,
+            ..Default::default()
+        };
+        let oracle_prices = OraclePrices {
+            oracle_mappings: Pubkey::default(),
+            prices,
+        };
+
+        let generic = MostRecentOfData {
+            source_entries: [0, 1, 0, 0],
+            max_divergence_bps: 100, // 1%
+            sources_max_age_s: 300,  // 5 minutes
+        }
+        .to_generic_data();
+
+        let err = get_price(&oracle_prices, &generic, &clock).unwrap_err();
+        assert!(matches!(err, ScopeError::MostRecentOfMaxAgeViolated));
+    }
+}
+
 pub fn validate_mapping_cfg(mapping: &Option<AccountInfo>, generic_data: &[u8]) -> ScopeResult<()> {
     if mapping.is_some() {
         warn!("No mapping account is expected for MostRecentOf oracle");

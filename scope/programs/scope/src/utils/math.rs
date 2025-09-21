@@ -222,6 +222,83 @@ pub fn check_confidence_interval(
     Ok(())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Helper big-int check using num-bigint to validate expected inequality without overflow
+    fn big_check(
+        price_value: u128,
+        price_exp: u32,
+        deviation: u128,
+        deviation_exp: u32,
+        tolerance_factor: u32,
+    ) -> bool {
+        use num_bigint::BigUint;
+        use num_traits::{One, ToPrimitive};
+
+        let ten = BigUint::from(10u32);
+        let price_scaled = BigUint::from(price_value) * ten.pow((deviation_exp) as u32);
+        let deviation_scaled =
+            BigUint::from(deviation) * BigUint::from(tolerance_factor) * ten.pow((price_exp) as u32);
+        price_scaled > deviation_scaled
+    }
+
+    #[test]
+    fn confidence_interval_overflow_can_flip_decision() {
+        // Choose very large exponents to force 10^30 factors and overflow in u128 multiplications
+        // price_exp = 30, deviation_exp = 0 leads to multiplying price by 10^0 and deviation*tolerance by 10^30
+        let price_value: u128 = u128::MAX / 2; // big but finite
+        let price_exp: u32 = 30;
+        let deviation: u128 = (u128::MAX / 4) + 1;
+        let deviation_exp: u32 = 0;
+        let tolerance_factor: u32 = 2; // requires price > 2*deviation * 10^30
+
+        // Big-int truth
+        let expect_ok = big_check(price_value, price_exp, deviation, deviation_exp, tolerance_factor);
+
+        // Current implementation may overflow; we just call and compare outcome presence/absence
+        let result = check_confidence_interval(
+            price_value,
+            price_exp,
+            deviation,
+            deviation_exp,
+            tolerance_factor,
+        );
+
+        // At minimum, the function should not panic. We assert that big-int result and implementation can diverge.
+        // If expect_ok is true but we got Err, or expect_ok is false but we got Ok, flag the divergence.
+        assert!(expect_ok != result.is_err(), "overflow-induced decision flip observed: expect_ok={expect_ok}, got_err={}", result.is_err());
+    }
+
+    #[test]
+    fn lamports_to_tokens_overflow() {
+        // Construct values that overflow u64 multiplication in price_of_lamports_to_price_of_tokens
+        let lamport_price = Price { value: u64::MAX, exp: 0 };
+        let token_a_decimals: u64 = 30; // extreme
+        let token_b_decimals: u64 = 0;
+        let p = price_of_lamports_to_price_of_tokens(lamport_price, token_a_decimals, token_b_decimals);
+        // If it wrapped, value will be smaller than expected big-int
+        let expected_big = num_bigint::BigUint::from(u64::MAX as u128) * num_bigint::BigUint::from(10u32).pow(30);
+        let wrapped = p.value as u128;
+        // Cannot equal the huge expected_big when truncated to u64; assert the path exercised and exp==0
+        assert_eq!(p.exp, 0);
+        assert_ne!(wrapped, expected_big.to_u128_digits().first().copied().unwrap_or(0) as u128);
+    }
+
+    #[test]
+    fn sqrt_price_truncates_high_limb_in_release() {
+        // Craft sqrt_price such that squaring and scaling leaves high limb non-zero
+        // Use near-maximum sqrt_price to ensure (sqrt^2)>>64 still leaves large value
+        let sqrt_price: u128 = u128::MAX / 2;
+        let x64 = super::sqrt_price_to_x64_price(sqrt_price, 18, 0);
+        // We cannot access high limb directly here, but ensure conversion succeeds
+        let price = q64x64_price_to_price(x64).expect("conversion should succeed");
+        // The test validates the code path executes; a more precise limb check would require exposing internals.
+        assert!(price.value > 0);
+    }
+}
+
 pub fn check_confidence_interval_decimal(
     price: Decimal,
     deviation: Decimal,

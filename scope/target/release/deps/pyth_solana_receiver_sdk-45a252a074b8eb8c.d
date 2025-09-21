@@ -1,0 +1,10 @@
+/workspace/scope/target/release/deps/libpyth_solana_receiver_sdk-45a252a074b8eb8c.rmeta: /usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/lib.rs /usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/config.rs /usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/error.rs /usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/price_update.rs
+
+/workspace/scope/target/release/deps/libpyth_solana_receiver_sdk-45a252a074b8eb8c.rlib: /usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/lib.rs /usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/config.rs /usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/error.rs /usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/price_update.rs
+
+/workspace/scope/target/release/deps/pyth_solana_receiver_sdk-45a252a074b8eb8c.d: /usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/lib.rs /usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/config.rs /usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/error.rs /usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/price_update.rs
+
+/usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/lib.rs:
+/usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/config.rs:
+/usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/error.rs:
+/usr/local/cargo/registry/src/index.crates.io-6f17d22bba15001f/pyth-solana-receiver-sdk-0.1.0/src/price_update.rs:
