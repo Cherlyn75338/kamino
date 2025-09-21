@@ -2312,6 +2312,7 @@ dependencies = [
  "jup-perp-itf",
  "lb-clmm-itf",
  "num-bigint",
+ "num-traits",
  "num_enum 0.7.1",
  "pyth-lazer-protocol",
  "pyth-lazer-solana-contract",

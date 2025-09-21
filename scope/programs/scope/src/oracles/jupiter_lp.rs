@@ -438,23 +438,31 @@ fn asset_amount_to_usd(price: &Price, token_amount: u64, token_decimals: u8) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use num_bigint::BigUint;
+    use num_traits::ToPrimitive;
 
     #[test]
-    fn test_asset_amount_to_usd_overflow_wraps() {
-        // Construct values that force the else-branch with a large multiplier
+    fn test_asset_amount_to_usd_wrap_distorts_aum() {
+        // Construct values that force else-branch and very large scale
         let price = Price { value: u64::MAX, exp: 0 };
         let token_amount = u64::MAX;
         let token_decimals: u8 = 0;
+        let diff = POOL_VALUE_SCALE_DECIMALS - (price.exp as u8 + token_decimals);
 
-        // With POOL_VALUE_SCALE_DECIMALS = 6, diff = 6 when exp + token_decimals = 0
-        // Baseline product without the extra 10^diff still fits in u128
-        let p: u128 = (price.value as u128) * (token_amount as u128);
+        // Big-int correct result
+        let p = BigUint::from(price.value as u128) * BigUint::from(token_amount as u128);
+        let correct = p * BigUint::from(10u128).pow(diff as u32);
 
-        // If the extra multiply were done in sufficiently wide precision, result would be p * 1_000_000
-        // The current implementation multiplies in u128 and can overflow.
-        let v = asset_amount_to_usd(&price, token_amount, token_decimals);
+        // Simulate release wrap at each step (u128 intermediates)
+        let low = ((price.value as u128).wrapping_mul(token_amount as u128))
+            .wrapping_mul(super::ten_pow(diff));
 
-        // Heuristic: wrapped value should be much smaller than the baseline p when overflow occurs
-        assert!(v < p, "expected wrapped result to be smaller than baseline product");
+        // Compare low bits vs full value: wrapped result equals lower limb only, losing high bits
+        let mask = (BigUint::from(1u128) << 128) - 1u8;
+        let correct_low: BigUint = (&correct) & &mask;
+        assert_eq!(low, correct_low.to_u128().unwrap());
+
+        // Distortion: if high bits exist, wrap has severely undercounted AUM
+        assert!(correct.bits() > 128, "choose inputs that exceed u128 when scaled");
     }
 }
