@@ -4,7 +4,7 @@ use decimal_wad::{
 };
 use raydium_amm_v3::libraries::U256;
 use solana_program::clock;
-use yvaults::utils::FULL_BPS;
+use crate::utils::consts::FULL_BPS;
 
 use crate::{Price, ScopeError, ScopeResult};
 
@@ -313,4 +313,83 @@ pub fn normalize_rate(value: u64, from_decimals: u8, to_decimals: u8) -> ScopeRe
         value.checked_mul(factor)
     };
     result.ok_or(ScopeError::MathOverflow)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use num_bigint::BigUint;
+
+    #[test]
+    fn test_confidence_interval_overflow_possible() {
+        let price_value: u128 = 100;
+        let price_exp: u32 = 30;
+        let deviation: u128 = 1;
+        let deviation_exp: u32 = 0;
+        let tolerance_factor: u32 = u32::MAX;
+
+        // Exact comparison using big integers: left <= right, so failure is expected in exact math
+        let common_exp = u32::min(price_exp, deviation_exp);
+        let left = BigUint::from(price_value)
+            * BigUint::from(10u128).pow((deviation_exp - common_exp) as u32);
+        let right = BigUint::from(deviation)
+            * BigUint::from(tolerance_factor)
+            * BigUint::from(10u128).pow((price_exp - common_exp) as u32);
+        assert!(left <= right, "exact math expects error condition");
+
+        // Show that u128 intermediates overflow in the implementation path
+        let mul1 = deviation.checked_mul(u128::from(tolerance_factor)).unwrap();
+        let overflow = mul1
+            .checked_mul(ten_pow(price_exp - common_exp))
+            .is_none();
+        assert!(overflow, "intermediate multiply must overflow in u128");
+
+        // Call the function to ensure it does not panic and returns a Result despite overflow risks
+        let _ = check_confidence_interval(
+            price_value,
+            price_exp,
+            deviation,
+            deviation_exp,
+            tolerance_factor,
+        );
+    }
+
+    #[test]
+    fn test_sqrt_price_to_x64_price_truncates_high_limb() {
+        let sqrt_price: u128 = u128::MAX;
+        let decimals_a: u8 = 19;
+        let decimals_b: u8 = 18; // diff = 1 => multiply by 10
+
+        // Recompute U256 path to inspect high limb
+        let sqrt_u256 = U256::from(sqrt_price);
+        let price = (sqrt_u256 * sqrt_u256) >> U256::from(64);
+        let price_u256 = price * U256::from(ten_pow((decimals_a - decimals_b) as u32));
+        assert!(price_u256.0[3] > 0, "expected non-zero high limb (>192 bits)");
+
+        let x64 = sqrt_price_to_x64_price(sqrt_price, decimals_a, decimals_b);
+        let truncated = U192([price_u256.0[0], price_u256.0[1], price_u256.0[2]]);
+        assert_eq!(x64, truncated, "function truncates instead of erroring");
+    }
+
+    #[test]
+    fn test_price_of_lamports_to_price_of_tokens_overflow() {
+        let lamport_price = Price { value: u64::MAX, exp: 0 };
+        let token_a_decimals: u64 = 30;
+        let token_b_decimals: u64 = 0;
+
+        // Big-int expected value (does not fit in u64)
+        let expected = BigUint::from(lamport_price.value as u128)
+            * BigUint::from(10u128)
+                .pow((token_a_decimals - (lamport_price.exp as u64 + token_b_decimals)) as u32);
+        assert!(expected.bits() > 64, "expected result doesn't fit in u64");
+
+        let scaled = price_of_lamports_to_price_of_tokens(
+            lamport_price,
+            token_a_decimals,
+            token_b_decimals,
+        );
+        // Ensure function produced some wrapped value instead of erroring
+        assert_ne!(scaled.value, 0, "unexpected zero after overflow");
+        assert_eq!(scaled.exp, 0);
+    }
 }

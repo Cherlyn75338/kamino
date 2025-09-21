@@ -434,3 +434,27 @@ fn asset_amount_to_usd(price: &Price, token_amount: u64, token_decimals: u8) -> 
         price_value * token_amount * ten_pow(diff)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_asset_amount_to_usd_overflow_wraps() {
+        // Construct values that force the else-branch with a large multiplier
+        let price = Price { value: u64::MAX, exp: 0 };
+        let token_amount = u64::MAX;
+        let token_decimals: u8 = 0;
+
+        // With POOL_VALUE_SCALE_DECIMALS = 6, diff = 6 when exp + token_decimals = 0
+        // Baseline product without the extra 10^diff still fits in u128
+        let p: u128 = (price.value as u128) * (token_amount as u128);
+
+        // If the extra multiply were done in sufficiently wide precision, result would be p * 1_000_000
+        // The current implementation multiplies in u128 and can overflow.
+        let v = asset_amount_to_usd(&price, token_amount, token_decimals);
+
+        // Heuristic: wrapped value should be much smaller than the baseline p when overflow occurs
+        assert!(v < p, "expected wrapped result to be smaller than baseline product");
+    }
+}
