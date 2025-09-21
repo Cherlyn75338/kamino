@@ -1,0 +1,10 @@
+[package]
+name = "scope_math_overflow_poc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Copy the math functions from scope for testing
+# We'll inline the relevant code to test overflow conditions
+
+[dev-dependencies]
