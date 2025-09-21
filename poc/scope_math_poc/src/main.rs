@@ -112,5 +112,57 @@ fn main() {
     ];
     let res = most_recent_of_dos(now, &entries, 300);
     println!("most_recent_of_dos: {:?}", res.err());
+
+    // 4) Jupiter LP AUM overflow PoC (asset_amount_to_usd multiply-then-multiply)
+    // asset_amount_to_usd: if price_decimals + token_decimals <= 6 => price*amount*10^diff
+    // Choose extreme: price_decimals=0, token_decimals=0, diff=6
+    let price_value_u64 = u64::MAX;
+    let token_amount_u64 = u64::MAX;
+    let diff = 6u32;
+    let u128_mul = (price_value_u64 as u128)
+        .wrapping_mul(token_amount_u64 as u128)
+        .wrapping_mul(ten_pow(diff));
+    let big_mul = BigUint::from(price_value_u64 as u128)
+        * BigUint::from(token_amount_u64 as u128)
+        * BigUint::from(10u32).pow(diff);
+    let big_low = big_mul.clone() & BigUint::from(u128::MAX);
+    let jlp_exceeds_u128 = big_mul > BigUint::from(u128::MAX);
+    println!(
+        "jlp_asset_amount_to_usd_overflow: u128_wrapped={} big_low_limb={} exceeds_u128={} diverged_low_limb={}",
+        u128_mul,
+        big_low.to_u128().unwrap_or(u128::MAX),
+        jlp_exceeds_u128,
+        u128_mul != big_low.to_u128().unwrap_or(u128::MAX)
+    );
+
+    // 5) KFarms reward issuance overflow PoC: decimal_adjusted_amt * px / factor
+    let decimal_adjusted_amt = u128::MAX / 2;
+    let px = u64::MAX as u128;
+    let factor = 1u128; // worst case for overflow
+    let kfarms_wrapped = decimal_adjusted_amt.wrapping_mul(px) / factor;
+    let kfarms_big = (BigUint::from(decimal_adjusted_amt) * BigUint::from(px)) / BigUint::from(factor);
+    let kfarms_big_low = kfarms_big.clone() & BigUint::from(u128::MAX);
+    let kfarms_exceeds_u128 = kfarms_big > BigUint::from(u128::MAX);
+    println!(
+        "kfarms_reward_issuance_overflow: wrapped={} big_low_limb={} exceeds_u128={} diverged_low_limb={}",
+        kfarms_wrapped,
+        kfarms_big_low.to_u128().unwrap_or(u128::MAX),
+        kfarms_exceeds_u128,
+        kfarms_wrapped != kfarms_big_low.to_u128().unwrap_or(u128::MAX)
+    );
+
+    // 6) Pyth Pull stale acceptance PoC (adapter passes i64::MAX as max age and no post-check)
+    let publish_time_old = 1000u64; // very old
+    let now_ts = 1_000_000_000u64;
+    let accepted = pyth_pull_accepts_stale(publish_time_old, now_ts);
+    println!("pyth_pull_stale_accepted: {} (age={})", accepted, now_ts - publish_time_old);
+}
+
+// Simulated Pyth Pull adapter behavior focused on staleness acceptance
+fn pyth_pull_accepts_stale(publish_time: u64, now_ts: u64) -> bool {
+    let _age = now_ts.saturating_sub(publish_time);
+    // The adapter requests get_price_no_older_than with MAX, then does not enforce age.
+    // So acceptance is unconditional with respect to age.
+    true
 }
 
