@@ -83,7 +83,7 @@ where
         lamport_price,
         src_token_decimals.into(),
         dst_token_decimals.into(),
-    );
+    )?;
 
     // Return price
     Ok(DatedPrice {
