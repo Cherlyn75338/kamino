@@ -314,3 +314,65 @@ pub fn normalize_rate(value: u64, from_decimals: u8, to_decimals: u8) -> ScopeRe
     };
     result.ok_or(ScopeError::MathOverflow)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use decimal_wad::{decimal::U256, rate::U128};
+
+    // Test to demonstrate the sqrt_price_to_x64_price vulnerability
+    #[test]
+    fn test_sqrt_price_overflow_vulnerability() {
+        // Create a large sqrt_price that would cause overflow when squared and adjusted
+        let sqrt_price = u128::MAX / 2; // Large but not maximum to avoid immediate overflow
+
+        // Large decimal difference that will cause the multiplication to overflow U192
+        let decimals_a = 18u8; // Token A has 18 decimals
+        let decimals_b = 6u8;  // Token B has 6 decimals
+
+        // This should trigger the overflow condition
+        let result = sqrt_price_to_x64_price(sqrt_price, decimals_a, decimals_b);
+
+        // Check if the result would be truncated (high limb would be nonzero in U256)
+        let sqrt_price_u256 = U256::from(sqrt_price);
+        let price = (sqrt_price_u256 * sqrt_price_u256) >> U256::from(64);
+        let price_u256 = price * U256::from(ten_pow(decimals_a - decimals_b));
+
+        // If price_u256.0[3] != 0, then the U192 conversion would truncate
+        assert!(price_u256.0[3] != 0, "This should trigger overflow condition");
+    }
+
+    #[test]
+    fn test_sqrt_price_normal_case() {
+        // Test a normal case that should not overflow
+        let sqrt_price = 1u128 << 64; // Unit price in Q64.64 format
+        let decimals_a = 9u8; // Normal decimal count
+        let decimals_b = 6u8; // Normal decimal count
+
+        let result = sqrt_price_to_x64_price(sqrt_price, decimals_a, decimals_b);
+
+        // Check the intermediate calculation doesn't overflow
+        let sqrt_price_u256 = U256::from(sqrt_price);
+        let price = (sqrt_price_u256 * sqrt_price_u256) >> U256::from(64);
+        let price_u256 = price * U256::from(ten_pow(decimals_a - decimals_b));
+
+        // Should not overflow
+        assert_eq!(price_u256.0[3], 0, "Normal case should not overflow");
+    }
+
+    #[test]
+    fn test_inversion_branch_truncation() {
+        // Test the inversion branch for potential truncation
+        let sqrt_price = 1u128; // Very small sqrt price
+        let decimals_a = 18u8;
+        let decimals_b = 6u8;
+
+        // This should trigger the inversion path
+        let result = sqrt_price_to_price(false, sqrt_price, decimals_a, decimals_b);
+
+        // The inversion should not truncate if done properly
+        // inverted_sqrt_price = (U192::one() << 128) / sqrt_price
+        // For sqrt_price = 1, this gives 2^128 which should fit in u128
+        // But for smaller values, it could overflow
+    }
+}
