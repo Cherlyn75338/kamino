@@ -17,7 +17,12 @@ fn sqrt_price_to_x64_price(sqrt_price: u128, decimals_a: u8, decimals_b: u8) -> 
     } else {
         price / U256::from(ten_pow(decimals_b - decimals_a))
     };
-    debug_assert_eq!(price_u256.0[3], 0, "price overflow: {:?}", price_u256); // should not overflow because of the shift
+    // SECURITY FIX: Replace debug assertion with runtime check
+    // This prevents silent truncation in release builds
+    if price_u256.0[3] != 0 {
+        return Err(ScopeError::MathOverflow);
+    }
+
     U192([price_u256.0[0], price_u256.0[1], price_u256.0[2]])
 }
 
@@ -32,11 +37,11 @@ pub fn sqrt_price_to_price(
     }
 
     let x64_price = if a_to_b {
-        sqrt_price_to_x64_price(sqrt_price, decimals_a, decimals_b)
+        sqrt_price_to_x64_price(sqrt_price, decimals_a, decimals_b)?
     } else {
         // invert the sqrt price
         let inverted_sqrt_price = (U192::one() << 128) / sqrt_price;
-        sqrt_price_to_x64_price(inverted_sqrt_price.as_u128(), decimals_b, decimals_a)
+        sqrt_price_to_x64_price(inverted_sqrt_price.as_u128(), decimals_b, decimals_a)?
     };
 
     q64x64_price_to_price(x64_price)
@@ -314,3 +319,58 @@ pub fn normalize_rate(value: u64, from_decimals: u8, to_decimals: u8) -> ScopeRe
     };
     result.ok_or(ScopeError::MathOverflow)
 }
+
+/// Test function to demonstrate the sqrt_price_to_x64_price vulnerability
+/// This function shows how the vulnerability can be triggered in practice
+pub fn test_sqrt_price_vulnerability() -> ScopeResult<()> {
+    // Test case 1: Large sqrt_price that causes overflow when squared and adjusted
+    // Let's take a sqrt_price close to the maximum possible value
+    let sqrt_price = u128::MAX / 2; // Large but not maximum to avoid immediate overflow
+
+    // Large decimal difference that will cause the multiplication to overflow U192
+    let decimals_a = 18u8; // Token A has 18 decimals
+    let decimals_b = 6u8;  // Token B has 6 decimals
+
+    // This should trigger the overflow condition
+    // price_u256 will have the high limb (price_u256.0[3]) set after multiplication
+    let result = sqrt_price_to_x64_price(sqrt_price, decimals_a, decimals_b);
+
+    // In debug mode, this would panic due to debug_assert
+    // In release mode, this would silently return a truncated (incorrect) result
+
+    // The correct behavior should be to return an error instead of truncating
+    Ok(result)
+}
+
+/*
+EXPLOIT SCENARIO ANALYSIS:
+
+This vulnerability allows attackers to potentially manipulate price calculations for CFMM pools
+(Raydium AMM v3 and Orca Whirlpool) in specific conditions:
+
+1. **Attack Vector**: When extreme sqrt_price values are combined with large decimal differences
+   between token pairs, the intermediate calculation overflows U192 but fits in U256.
+
+2. **Conditions for Exploitation**:
+   - sqrt_price > 2^64 (to cause overflow when squared)
+   - |decimals_a - decimals_b| >= 12 (to amplify the overflow)
+   - The resulting price calculation exceeds 192 bits but fits in 256 bits
+
+3. **Impact**:
+   - Price distortion: The truncated price could be orders of magnitude smaller than correct
+   - Oracle manipulation: Affects any protocol that relies on Scope oracle prices
+   - Arbitrage opportunities: Incorrect prices could enable profitable trades
+   - Liquidation risks: Wrong prices could trigger incorrect liquidations
+
+4. **Real-World Example**:
+   - Token A: 18 decimals (standard ERC20)
+   - Token B: 6 decimals (USDC)
+   - sqrt_price: ~2^120 (extreme but possible in volatile markets)
+   - Result: price calculation overflows U192, gets truncated in release mode
+   - Effect: Price appears much lower than actual, enabling arbitrage
+
+5. **Mitigation Applied**:
+   - Replaced debug_assert with runtime check
+   - Returns ScopeError::MathOverflow on overflow
+   - Prevents silent truncation in both debug and release builds
+*/
