@@ -154,7 +154,7 @@ where
             price_lamport_to_lamport,
             share_decimals,
             token_decimals,
-        )
+        )?
     };
 
     Ok(DatedPrice {
