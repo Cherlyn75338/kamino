@@ -19,6 +19,12 @@ use program_id::PROGRAM_ID;
 pub use whirlpool;
 #[cfg(feature = "yvaults")]
 pub use yvaults;
+#[cfg(not(feature = "yvaults"))]
+pub mod yvaults {
+    pub mod utils {
+        pub const FULL_BPS: u64 = 10_000;
+    }
+}
 
 pub use crate::{errors::*, states::*, utils::scope_chain};
 
