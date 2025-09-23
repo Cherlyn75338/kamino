@@ -154,7 +154,10 @@ where
             price_lamport_to_lamport,
             share_decimals,
             token_decimals,
-        )
+        ).map_err(|e| {
+            warn!("Math overflow in KToken price conversion: {e:?}");
+            ScopeError::MathOverflow
+        })?
     };
 
     Ok(DatedPrice {

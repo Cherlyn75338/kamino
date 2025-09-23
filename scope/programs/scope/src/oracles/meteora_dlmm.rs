@@ -83,7 +83,10 @@ where
         lamport_price,
         src_token_decimals.into(),
         dst_token_decimals.into(),
-    );
+    ).map_err(|e| {
+        warn!("Math overflow in price conversion: {e:?}");
+        e
+    })?;
 
     // Return price
     Ok(DatedPrice {
