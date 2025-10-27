@@ -1478,6 +1478,137 @@ pub fn approximate_compounded_interest(rate: Fraction, elapsed_slots: u64) -> Fr
     Fraction::ONE + first_term + second_term + third_term
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::reserve::NewReserveLiquidityParams;
+
+    fn big_pow(mut base: BigFraction, mut exp: u64) -> BigFraction {
+        let mut acc = BigFraction::from(Fraction::ONE);
+        while exp > 0 {
+            if exp & 1 == 1 {
+                acc *= base;
+            }
+            exp >>= 1;
+            if exp == 0 {
+                break;
+            }
+            base *= base;
+        }
+        acc
+    }
+
+    fn exact_compounded_interest(rate: Fraction, elapsed_slots: u64) -> Fraction {
+        if elapsed_slots == 0 {
+            return Fraction::ONE;
+        }
+        let base = Fraction::ONE + rate / u128::from(SLOTS_PER_YEAR);
+        let base_bf = BigFraction::from(base);
+        let res_bf = big_pow(base_bf, elapsed_slots);
+        Fraction::try_from(res_bf).expect("exact_compounded_interest overflow")
+    }
+
+    #[test]
+    fn approx_never_exceeds_exact_for_positive_rates_small_grid() {
+        let apr_bps_cases: &[u64] = &[0, 100, 500, 1_500, 5_000, 20_000, 100_000, 200_000];
+        let slots_cases: &[u64] = &[0, 1, 2, 3, 4, 5, 10, 100, 1_000, 10_000, 100_000, 1_000_000];
+        for &apr_bps in apr_bps_cases {
+            let rate = Fraction::from_bps(apr_bps);
+            for &slots in slots_cases {
+                let approx = approximate_compounded_interest(rate, slots);
+                let exact = exact_compounded_interest(rate, slots);
+                assert!(approx <= exact, "approx > exact: apr_bps={apr_bps} slots={slots} approx={} exact={}", approx.to_display(), exact.to_display());
+                assert!(approx >= Fraction::ONE || slots == 0, "approx < 1 with positive rate");
+            }
+        }
+    }
+
+    #[test]
+    fn rounding_drift_borrow_repay_loop_protocol_bias() {
+        let mut liq = ReserveLiquidity::new(NewReserveLiquidityParams {
+            mint_pubkey: Pubkey::default(),
+            mint_decimals: 6,
+            mint_token_program: Pubkey::default(),
+            supply_vault: Pubkey::default(),
+            fee_vault: Pubkey::default(),
+            market_price_sf: Fraction::ONE.to_bits(),
+            initial_amount_deposited_in_reserve: 1_000_000,
+        });
+
+        let initial_total = liq.total_supply();
+
+        // Borrow slightly above an integer, then repay full amount
+        for k in 1..100u64 {
+            let eps = Fraction::from_bits(1);
+            let borrow_f = Fraction::from(k) + eps; // floors to k on transfer, debt increases by k+eps
+            liq.borrow(borrow_f).unwrap();
+
+            let borrowed = Fraction::from_bits(liq.borrowed_amount_sf);
+            let CalculateRepayResult { settle_amount, repay_amount } = Reserve::default().calculate_repay(u64::MAX, borrowed);
+            liq.repay(repay_amount, settle_amount).unwrap();
+        }
+
+        let final_total = liq.total_supply();
+        // Protocol should not lose value from rounding; attacker shouldn't gain
+        assert!(final_total >= initial_total, "Attacker-positive drift detected: initial={} final={}", initial_total.to_display(), final_total.to_display());
+    }
+
+    #[test]
+    fn deposit_then_redeem_does_not_gain_tokens() {
+        let mut reserve = Reserve::default();
+        // Initialize with some liquidity and collateral supply
+        reserve.liquidity.available_amount = 1_000_000;
+        reserve.collateral.mint_total_supply = 500_000;
+
+        let deposit_amounts = [1u64, 2, 3, 5, 7, 10, 11, 13, 97, 101, 1000, 10_000];
+        for &amt in &deposit_amounts {
+            let deposit = reserve
+                .compute_depositable_amount_and_minted_collateral(amt)
+                .unwrap();
+            reserve
+                .deposit_liquidity(deposit.liquidity_amount, deposit.collateral_amount)
+                .unwrap();
+
+            let redeemed = reserve.redeem_collateral(deposit.collateral_amount).unwrap();
+            // User should not be able to receive more than they deposited from a single round-trip
+            assert!(redeemed <= deposit.liquidity_amount, "Profitable deposit->redeem loop: in={} out={}", deposit.liquidity_amount, redeemed);
+        }
+    }
+    #[test]
+    fn print_relative_error_heatmap_sample() {
+        let apr_bps_cases: &[u64] = &[500, 2_000, 10_000, 50_000, 100_000, 200_000];
+        let slots_cases: &[u64] = &[10, 100, 1_000, 10_000, 100_000, 1_000_000];
+        let mut worst_rel_err = Fraction::ZERO;
+        let mut worst_case = (0u64, 0u64);
+        for &apr_bps in apr_bps_cases {
+            let rate = Fraction::from_bps(apr_bps);
+            for &slots in slots_cases {
+                let approx = approximate_compounded_interest(rate, slots);
+                let exact = exact_compounded_interest(rate, slots);
+                if exact > Fraction::ZERO {
+                    let rel_err = (exact - approx) / exact;
+                    if rel_err > worst_rel_err {
+                        worst_rel_err = rel_err;
+                        worst_case = (apr_bps, slots);
+                    }
+                    println!(
+                        "apr_bps={apr_bps:>6} slots={slots:>8} approx={} exact={} rel_err_bps={}",
+                        approx.to_display(),
+                        exact.to_display(),
+                        (rel_err * 10_000u128).to_round::<u64>()
+                    );
+                }
+            }
+        }
+        println!(
+            "worst_case apr_bps={} slots={} worst_rel_err_bps={}",
+            worst_case.0,
+            worst_case.1,
+            (worst_rel_err * 10_000u128).to_round::<u64>()
+        );
+    }
+}
+
 
 
 

@@ -1,0 +1,2 @@
+cargo:rerun-if-env-changed=CLUSTER
+cargo:rustc-cfg=feature="mainnet"

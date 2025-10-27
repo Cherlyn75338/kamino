@@ -97,6 +97,84 @@ pub(super) fn get_validated_price(
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::types::{TimestampedPrice, TimestampedPriceWithTwap};
+    use crate::state::token_info::{PythConfiguration, PriceHeuristic, TokenInfo};
+    use anchor_lang::prelude::Pubkey;
+
+    fn token_info_with_twap(enabled: bool) -> TokenInfo {
+        let mut t = TokenInfo::default();
+        // name
+        t.name = *b"TEST\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
+        // heuristics disabled
+        t.heuristic = PriceHeuristic { lower: 0, upper: 0, exp: 0 };
+        t.max_twap_divergence_bps = if enabled { 100 } else { 0 };
+        t.max_age_price_seconds = 300;
+        t.max_age_twap_seconds = if enabled { 300 } else { 0 };
+        // enable pyth to satisfy is_valid()
+        t.pyth_configuration = PythConfiguration { price: Pubkey::new_unique() };
+        t.block_price_usage = 0; // allow price usage
+        t
+    }
+
+    #[test]
+    fn missing_twap_marks_status_incomplete_and_gated_by_all_checks() {
+        let token = token_info_with_twap(true);
+        let now = 1_000_000u64 as i64;
+
+        let px = TimestampedPriceWithTwap {
+            price: TimestampedPrice {
+                price_load: Box::new(|| Ok(Fraction::from_num(1)) ),
+                timestamp: (now as u64) - 10,
+            },
+            twap: None, // missing though required
+        };
+        let res = get_validated_price(px, &token, now).expect("Should return Some even if twap missing");
+
+        // Not all TWAP flags should be set
+        assert!(!res.status.contains(PriceStatusFlags::TWAP_CHECKED));
+        assert!(!res.status.contains(PriceStatusFlags::TWAP_AGE_CHECKED));
+
+        // LastUpdate gating with ALL_CHECKS must reject usage
+        let mut lu = crate::state::last_update::LastUpdate::new(1);
+        lu.update_slot(2, Some(res.status));
+        assert!(lu.is_stale(2, PriceStatusFlags::ALL_CHECKS).unwrap(), "ALL_CHECKS gating should fail without twap");
+    }
+
+    #[test]
+    fn fresh_twap_within_tolerance_passes_all_checks() {
+        let token = token_info_with_twap(true);
+        let now = 2_000_000u64 as i64;
+
+        let px_val = Fraction::from_num(100);
+        let twap_val = Fraction::from_num(100); // equal, within tolerance
+        let px = TimestampedPriceWithTwap {
+            price: TimestampedPrice {
+                price_load: Box::new(move || Ok(px_val)),
+                timestamp: (now as u64) - 10,
+            },
+            twap: Some(TimestampedPrice {
+                price_load: Box::new(move || Ok(twap_val)),
+                timestamp: (now as u64) - 10,
+            }),
+        };
+        let res = get_validated_price(px, &token, now).expect("Expected Some");
+        // TWAP flags set
+        assert!(res.status.contains(PriceStatusFlags::TWAP_CHECKED));
+        assert!(res.status.contains(PriceStatusFlags::TWAP_AGE_CHECKED));
+        // PRICE flags set
+        assert!(res.status.contains(PriceStatusFlags::PRICE_LOADED));
+        assert!(res.status.contains(PriceStatusFlags::PRICE_AGE_CHECKED));
+        // Usage allowed flag set
+        assert!(res.status.contains(PriceStatusFlags::PRICE_USAGE_ALLOWED));
+
+        let mut lu = crate::state::last_update::LastUpdate::new(1);
+        lu.update_slot(2, Some(res.status));
+        assert!(!lu.is_stale(2, PriceStatusFlags::ALL_CHECKS).unwrap(), "ALL_CHECKS gating should pass with full flags");
+    }
+}
 fn check_price_age(
     price_timestamp: u64,
     max_age_seconds: u64,
