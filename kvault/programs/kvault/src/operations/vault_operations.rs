@@ -95,9 +95,12 @@ where
     // EFFECTS: These are always the last things to update, their order matters for fee tracking
     common::deposit_into_vault(vault, user_tokens_to_deposit);
     common::mint_shares(vault, shares_to_mint);
+    // Include crank funds in prev_aum to avoid feeing on external inflows
     common::update_prev_aum(
         vault,
-        current_vault_aum + Fraction::from(user_tokens_to_deposit),
+        current_vault_aum
+            + Fraction::from(user_tokens_to_deposit)
+            + Fraction::from(crank_funds_to_deposit),
     );
     common::deposit_crank_funds(vault, crank_funds_to_deposit);
 
@@ -216,6 +219,8 @@ where
         Fraction::from(available_to_send_to_user) + invested_liquidity_to_send_to_user_f;
     let actual_invested_liquidity_to_send_to_user =
         invested_liquidity_to_send_to_user - liquidity_rounding_error;
+    let actual_amount_to_send_to_user_f =
+        Fraction::from(available_to_send_to_user) + Fraction::from(actual_invested_liquidity_to_send_to_user);
 
     let shares_to_burn = common::calculate_shares_to_burn(
         theoretical_amount_to_send_to_user_f,
@@ -264,10 +269,8 @@ where
             reserve_address,
         )?;
     }
-    common::update_prev_aum(
-        vault,
-        current_vault_aum - theoretical_amount_to_send_to_user_f,
-    );
+    // Decrease prev_aum by the actual tokens sent, not theoretical fractional
+    common::update_prev_aum(vault, current_vault_aum - actual_amount_to_send_to_user_f);
 
     Ok(WithdrawEffects {
         shares_to_burn,
@@ -779,7 +782,7 @@ pub mod common {
         number_of_shares: u64,
     ) -> u64 {
         (amount_to_send_to_user
-            .full_mul_int_ratio(total_supply, total_sum.to_floor::<u64>())
+            .full_mul_int_ratio(total_supply, total_sum.to_ceil::<u64>())
             .to_ceil::<u64>())
         .min(number_of_shares)
     }

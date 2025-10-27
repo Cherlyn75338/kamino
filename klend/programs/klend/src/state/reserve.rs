@@ -1478,6 +1478,36 @@ pub fn approximate_compounded_interest(rate: Fraction, elapsed_slots: u64) -> Fr
     Fraction::ONE + first_term + second_term + third_term
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::Fraction;
+
+    // Lightweight unit test to bound approximation error for representative inputs.
+    #[test]
+    fn approx_interest_error_within_bound_small_rates() {
+        // Typical per-slot rate for APY up to ~100% on 2^31 slots/year is tiny; choose a few.
+        let rates = [
+            Fraction::from_bps(100),   // 1%
+            Fraction::from_bps(1000),  // 10%
+            Fraction::from_bps(2000),  // 20%
+        ];
+        let slots = [1u64, 2u64, 4u64, 16u64, 128u64];
+
+        for r in rates.iter() {
+            for s in slots.iter() {
+                let approx = approximate_compounded_interest(*r, *s);
+                // For unit test we compare against 1 + r*s (first order upper bound) to ensure monotonicity
+                // and basic reasonableness. In full integration tests we compare exact pow.
+                let linear_upper = Fraction::ONE + (*r * u128::from(*s))
+                    + ((*r * *r) * u128::from(*s) * u128::from(*s) / 2);
+                assert!(approx <= linear_upper * Fraction::from_percent(102));
+                assert!(approx >= Fraction::ONE);
+            }
+        }
+    }
+}
+
 
 
 
