@@ -662,13 +662,13 @@ impl ReserveLiquidity {
         let acc_protocol_fees_f = Fraction::from_bits(self.accumulated_protocol_fees_sf);
 
        
-        let compounded_interest_rate = approximate_compounded_interest(
+        let compounded_interest_rate = compounded_interest_precise(
             current_borrow_rate + host_fixed_interest_rate,
             slots_elapsed,
         );
        
         let compounded_fixed_rate =
-            approximate_compounded_interest(host_fixed_interest_rate, slots_elapsed);
+            compounded_interest_precise(host_fixed_interest_rate, slots_elapsed);
 
         let new_cumulative_borrow_rate: BigFraction =
             previous_cumulative_borrow_rate * BigFraction::from(compounded_interest_rate);
@@ -1476,6 +1476,60 @@ pub fn approximate_compounded_interest(rate: Fraction, elapsed_slots: u64) -> Fr
     let third_term = (base_power_three * exp * exp_minus_one * exp_minus_two) / 6;
 
     Fraction::ONE + first_term + second_term + third_term
+}
+
+/// Computes (1 + rate/slots_per_year) ^ elapsed_slots using exponentiation-by-squaring.
+/// Returns None on overflow.
+fn exact_compounded_interest_checked(rate: Fraction, elapsed_slots: u64) -> Option<Fraction> {
+    if elapsed_slots == 0 {
+        return Some(Fraction::ONE);
+    }
+    let base = Fraction::ONE + rate / u128::from(SLOTS_PER_YEAR);
+    let mut result = Fraction::ONE;
+    let mut factor = base;
+    let mut exp = elapsed_slots;
+    while exp > 0 {
+        if (exp & 1) == 1 {
+            result = result.checked_mul(factor)?;
+        }
+        exp >>= 1;
+        if exp > 0 {
+            factor = factor.checked_mul(factor)?;
+        }
+    }
+    Some(result)
+}
+
+/// Precise compounded interest with safe fallback: uses exact computation when possible,
+/// falls back to the previous approximation if an overflow is detected.
+pub fn compounded_interest_precise(rate: Fraction, elapsed_slots: u64) -> Fraction {
+    match exact_compounded_interest_checked(rate, elapsed_slots) {
+        Some(v) => v,
+        None => approximate_compounded_interest(rate, elapsed_slots),
+    }
+}
+
+#[cfg(test)]
+mod tests_compounding {
+    use super::*;
+
+    #[test]
+    fn exact_compounding_basic_cases() {
+        // Zero slots => 1
+        assert_eq!(compounded_interest_precise(Fraction::ZERO, 0), Fraction::ONE);
+
+        // Small rate, 1 slot => 1 + r/slots_per_year
+        let r = Fraction::from_bps(500); // 5%
+        let expected = Fraction::ONE + r / u128::from(SLOTS_PER_YEAR);
+        assert_eq!(compounded_interest_precise(r, 1), expected);
+
+        // Compare exact vs approximation for modest inputs: exact >= approx
+        let r = Fraction::from_bps(1000); // 10%
+        let n = 10_000u64; // ~10k slots
+        let exact = compounded_interest_precise(r, n);
+        let approx = approximate_compounded_interest(r, n);
+        assert!(exact >= approx);
+    }
 }
 
 
