@@ -921,3 +921,97 @@ pub mod string_utils {
         array
     }
 }
+
+#[cfg(test)]
+mod rounding_tests {
+    use super::common::{
+        compute_amount_to_deposit_from_shares_to_mint, compute_user_total_received_on_withdraw,
+        get_shares_to_mint,
+    };
+    use kamino_lending::{fraction::Fraction, utils::FractionExtra};
+
+    #[test]
+    fn deposit_then_withdraw_never_inflates_tokens_basic() {
+        // Various initial states with price near 1.0
+        let scenarios = [
+            (0u64, Fraction::from(0u64)),                 // bootstrap vault
+            (1_000_000u64, Fraction::from(1_000_000u64)), // 1:1 price
+            (1_000_001u64, Fraction::from_bits(Fraction::from(1_000_000u64).to_bits() + 1)),
+        ];
+
+        let deposits = [1u64, 2, 3, 9, 10, 11, 99, 100, 101, 10_000];
+
+        for &(shares_issued, aum) in &scenarios {
+            for &user_tokens in &deposits {
+                let shares_to_mint = get_shares_to_mint(aum, user_tokens, shares_issued).unwrap();
+                if shares_to_mint == 0 {
+                    continue;
+                }
+                let user_tokens_effective = compute_amount_to_deposit_from_shares_to_mint(
+                    shares_issued,
+                    aum,
+                    shares_to_mint,
+                );
+
+                // State after deposit
+                let new_shares = shares_issued + shares_to_mint;
+                let new_aum = aum + Fraction::from(user_tokens_effective);
+
+                // Immediate withdraw of minted shares
+                let tokens_back = compute_user_total_received_on_withdraw(
+                    new_shares,
+                    new_aum,
+                    shares_to_mint,
+                );
+
+                // No positive extraction: tokens received must be <= tokens deposited
+                assert!(
+                    tokens_back <= user_tokens_effective,
+                    "Inflation: initial (S={},AUM={}) deposit {} -> shares {} -> withdraw back {}",
+                    shares_issued,
+                    aum.to_display(),
+                    user_tokens_effective,
+                    shares_to_mint,
+                    tokens_back
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn repeated_small_deposit_withdraw_cycles_do_not_gain_tokens() {
+        // Start with a healthy vault state
+        let mut shares_issued: u64 = 10_000_000;
+        let mut aum = Fraction::from(10_000_000u64);
+
+        let mut net_profit: i128 = 0;
+        // Adversarially try to exploit rounding at 1 lamport deposits
+        for _ in 0..1_000 {
+            let user_tokens = 1u64;
+            let shares_to_mint = get_shares_to_mint(aum, user_tokens, shares_issued).unwrap();
+            if shares_to_mint == 0 {
+                continue;
+            }
+            let user_tokens_effective = compute_amount_to_deposit_from_shares_to_mint(
+                shares_issued,
+                aum,
+                shares_to_mint,
+            );
+
+            shares_issued += shares_to_mint;
+            aum += Fraction::from(user_tokens_effective);
+
+            let tokens_back =
+                compute_user_total_received_on_withdraw(shares_issued, aum, shares_to_mint);
+
+            // Burn the shares conceptually and reduce aum by tokens sent back
+            shares_issued -= shares_to_mint;
+            aum -= Fraction::from(tokens_back);
+
+            net_profit += tokens_back as i128 - user_tokens_effective as i128;
+        }
+
+        // Attacker shouldn't be able to accumulate positive value
+        assert!(net_profit <= 0, "net_profit={net_profit}");
+    }
+}
