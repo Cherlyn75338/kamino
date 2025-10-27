@@ -50,3 +50,7 @@ kamino_lending = { git = "https://github.com/Kamino-Finance/klend.git", features
 # Only required when serializing to market config to JSON and in tests
 serde = { workspace = true, optional = true }
 
+[dev-dependencies]
+proptest = "1.5"
+rand = "0.8"
+
