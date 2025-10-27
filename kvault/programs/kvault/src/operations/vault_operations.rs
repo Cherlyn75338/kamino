@@ -97,7 +97,9 @@ where
     common::mint_shares(vault, shares_to_mint);
     common::update_prev_aum(
         vault,
-        current_vault_aum + Fraction::from(user_tokens_to_deposit),
+        current_vault_aum
+            + Fraction::from(user_tokens_to_deposit)
+            + Fraction::from(crank_funds_to_deposit),
     );
     common::deposit_crank_funds(vault, crank_funds_to_deposit);
 
@@ -200,6 +202,12 @@ where
             } else {
                 0
             };
+            if liquidity_rounding_error > 0 {
+                // Track rounding residual so it won't be feeable
+                vault.set_rounding_residual(
+                    vault.get_rounding_residual() + Fraction::from(liquidity_rounding_error),
+                );
+            }
             (
                 invested_liquidity_to_send_to_user_f,
                 invested_liquidity_to_disinvest,
@@ -264,9 +272,12 @@ where
             reserve_address,
         )?;
     }
+    // Update prev_aum by actual tokens sent to the user (avoid theoretical fractional drift)
     common::update_prev_aum(
         vault,
-        current_vault_aum - theoretical_amount_to_send_to_user_f,
+        current_vault_aum
+            - Fraction::from(available_to_send_to_user
+                + actual_invested_liquidity_to_send_to_user),
     );
 
     Ok(WithdrawEffects {
@@ -518,6 +529,13 @@ where
         rounding_loss = 0;
     }
 
+    if rounding_loss > 0 {
+        // Track rounding residual so it won't be feeable
+        vault.set_rounding_residual(
+            vault.get_rounding_residual() + Fraction::from(rounding_loss),
+        );
+    }
+
     vault.set_allocation_last_invest_slot(reserve_address, current_slot)?;
     Ok(InvestEffects {
         liquidity_amount,
@@ -537,6 +555,7 @@ pub fn charge_fees(vault: &mut VaultState, invested: &Invested, timestamp: u64) 
 
     let new_aum = vault.compute_aum(&invested.total).unwrap_or(Fraction::ZERO);
     let prev_aum = vault.get_prev_aum();
+    let rounding_residual = vault.get_rounding_residual();
 
     // Use our new kmsg! macro which is cleaner and more efficient
     crate::kmsg_sized!(
@@ -551,11 +570,13 @@ pub fn charge_fees(vault: &mut VaultState, invested: &Invested, timestamp: u64) 
     let mgmt_charge = if seconds_passed == 0 {
         Fraction::ZERO
     } else {
-        // Mgmt fee is applied to prev AUM
+        // Mgmt fee is applied to prev AUM, excluding rounding residual
         let mgmt_fee_yearly = Fraction::from_bps(vault.management_fee_bps);
         let mgmt_fee = mgmt_fee_yearly * u128::from(seconds_passed)
             / SECONDS_PER_YEAR.ceil().to_u128().unwrap();
-        let mgmt_charge = Fraction::from(prev_aum).mul(mgmt_fee);
+        let mgmt_charge = Fraction::from(prev_aum)
+            .saturating_sub(rounding_residual.min(Fraction::from(prev_aum)))
+            .mul(mgmt_fee);
 
         crate::kmsg_sized!(
             250,
@@ -567,8 +588,8 @@ pub fn charge_fees(vault: &mut VaultState, invested: &Invested, timestamp: u64) 
         mgmt_charge
     };
 
-    // Performance fee is applied to the interest earned; if there was a loss we don't charge any performance fee
-    let earned_interest = new_aum.saturating_sub(prev_aum);
+    // Performance fee is applied to the interest earned; exclude non-yield rounding residual
+    let earned_interest = (new_aum.saturating_sub(rounding_residual)).saturating_sub(prev_aum);
     let perf_charge = Fraction::from_bps(vault.performance_fee_bps) * earned_interest;
 
     crate::kmsg_sized!(
@@ -590,6 +611,8 @@ pub fn charge_fees(vault: &mut VaultState, invested: &Invested, timestamp: u64) 
     let pending_fees = vault.get_pending_fees() + new_fees;
     vault.set_pending_fees(pending_fees);
     update_prev_aum(vault, new_aum - new_fees);
+    // Clear rounding residual after fees are charged for this interval
+    vault.set_rounding_residual(Fraction::ZERO);
     vault.last_fee_charge_timestamp = timestamp;
 
     Ok(())
@@ -615,10 +638,11 @@ pub mod common {
             return err!(KaminoVaultError::VaultAUMZero);
         }
 
-        let shares_to_mint = Fraction::from(shares_issued)
-            .full_mul_int_ratio(user_token_amount, holdings_aum.to_ceil::<u64>());
-
-        Ok(shares_to_mint.to_floor())
+        // Neutral rounding: compute exact fraction and floor
+        let ratio = Fraction::from(user_token_amount) / holdings_aum;
+        let shares_to_mint_f = Fraction::from(shares_issued) * ratio;
+        // Floor to avoid over-issuing shares
+        Ok(shares_to_mint_f.to_floor())
     }
 
     pub fn amounts_invested<'info, T>(
@@ -756,9 +780,9 @@ pub mod common {
         if vault_total_shares == 0 {
             shares_to_mint
         } else {
-            vault_total_holdings
-                .full_mul_int_ratio_ceil(shares_to_mint, vault_total_shares)
-                .to_ceil()
+            let ratio = Fraction::from(shares_to_mint) / Fraction::from(vault_total_shares);
+            let tokens_f = vault_total_holdings * ratio;
+            tokens_f.to_floor()
         }
     }
 
@@ -778,10 +802,8 @@ pub mod common {
         total_sum: Fraction,
         number_of_shares: u64,
     ) -> u64 {
-        (amount_to_send_to_user
-            .full_mul_int_ratio(total_supply, total_sum.to_floor::<u64>())
-            .to_ceil::<u64>())
-        .min(number_of_shares)
+        let shares_f = (amount_to_send_to_user * Fraction::from(total_supply)) / total_sum;
+        shares_f.to_floor::<u64>().min(number_of_shares)
     }
 
     pub fn deposit_into_vault_allocation(

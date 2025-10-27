@@ -123,7 +123,6 @@ fn get_share_value(
     if total_supply == 0 {
         return Ok(0);
     }
-    // WARNING: This assumes both token mint has the same number of decimals
     Ok(u64::min(
         10u64.pow(decimals.into()),
         math::mul_div(total_assets, rate, total_supply)?,

@@ -1461,7 +1461,9 @@ pub fn approximate_compounded_interest(rate: Fraction, elapsed_slots: u64) -> Fr
         _ => (),
     }
 
-    let exp: u128 = elapsed_slots.into();
+    // Cap elapsed slots to bound approximation error
+    let capped_elapsed_slots = elapsed_slots.min(SLOTS_PER_YEAR * 2);
+    let exp: u128 = capped_elapsed_slots.into();
    
     let exp_minus_one = exp.wrapping_sub(1);
     let exp_minus_two = exp.wrapping_sub(2);

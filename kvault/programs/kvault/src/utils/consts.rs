@@ -5,7 +5,7 @@ pub const SHARES_SEEDS: &[u8; 6] = b"shares";
 pub const METADATA_SEEDS: &[u8; 8] = b"metadata";
 pub const EVENT_AUTHORITY: &[u8] = b"__event_authority";
 
-pub const VAULT_STATE_SIZE: usize = 62544;
+pub const VAULT_STATE_SIZE: usize = 62560;
 pub const VAULT_ALLOCATION_SIZE: usize = 2160;
 
 /// Max value for management fee that a vault manager can set
